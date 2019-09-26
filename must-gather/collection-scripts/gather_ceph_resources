@@ -1,5 +1,6 @@
 #!/bin/bash
 # Expect base collection path as an argument
+set -x
 BASE_COLLECTION_PATH=$1
 
 # Use PWD as base path if no argument is passed
@@ -44,17 +45,17 @@ ceph_volume_commands+=("ceph-volume lvm list")
 
 # Inspecting ceph related custom resources for all namespaces 
 for resource in ${ceph_resources[@]}; do
-    openshift-must-gather --base-dir=${CEPH_COLLLECTION_PATH} inspect ${resource} --all-namespaces
+    # openshift-must-gather --base-dir=${CEPH_COLLLECTION_PATH} inspect ${resource} --all-namespaces
 done
 
 # Inspecting the namespace where ceph-cluster is installed
 for ns in $(oc get cephcluster --all-namespaces --no-headers | awk '{print $1}'); do
-    openshift-must-gather --base-dir=${CEPH_COLLLECTION_PATH} inspect ns/${ns}
+    # openshift-must-gather --base-dir=${CEPH_COLLLECTION_PATH} inspect ns/${ns}
 
     # Running ceph commands in the toolbox
-    toolbox_pod_name=`oc get po -n ${ns} -l app=rook-ceph-tools -o jsonpath='{.items[*].metadata.name}'`
+    toolbox_pod_name=`oc get po -n ${ns} -l app=rook-ceph-operator -o jsonpath='{.items[*].metadata.name}'`
     if [ ! -z ${toolbox_pod_name} ]; then
-        toolbox_pod_status=`oc get po -n ${ns} -l app=rook-ceph-tools -o jsonpath='{.items[*].status.phase}'`
+        toolbox_pod_status=`oc get po -n ${ns} -l app=rook-ceph-operator -o jsonpath='{.items[*].status.phase}'`
         if [ "$toolbox_pod_status" != "Running" ]; then
             exit 0;
         fi
@@ -67,12 +68,12 @@ for ns in $(oc get cephcluster --all-namespaces --no-headers | awk '{print $1}')
             COMMAND_OUTPUT_FILE=${COMMAND_OUTPUT_DIR}/${ceph_commands[$i]// /_}
             oc -n ${ns} exec ${toolbox_pod_name} -- ${ceph_commands[$i]} >> ${COMMAND_OUTPUT_FILE}
             JSON_COMMAND_OUTPUT_FILE=${COMMAND_JSON_OUTPUT_DIR}/${ceph_commands[$i]// /_}_--format_json-pretty
-            oc -n ${ns} exec ${toolbox_pod_name} -- ${ceph_commands[$i]} --format json-pretty >> ${JSON_COMMAND_OUTPUT_FILE}
+            oc -n ${ns} exec ${toolbox_pod_name} -- ${ceph_commands[$i]} --connect-timeout=15 --cluster=${ns} --conf=/var/lib/rook/${ns}/${ns}.config --keyring=/var/lib/rook/${ns}/client.admin.keyring --format json-pretty >> ${JSON_COMMAND_OUTPUT_FILE}
         done
         for ((i = 0; i < ${#ceph_volume_commands[@]}; i++)); do
             printf "collecting command output for: %s\n"  "${ceph_volume_commands[$i]}"
             COMMAND_OUTPUT_FILE=${COMMAND_OUTPUT_DIR}/${ceph_volume_commands[$i]// /_}
-            oc -n ${ns} exec ${toolbox_pod_name} -- ${ceph_volume_commands[$i]} >> ${COMMAND_OUTPUT_FILE}
+            oc -n ${ns} exec ${toolbox_pod_name} -- ${ceph_volume_commands[$i]} --connect-timeout=15 --cluster=${ns} --conf=/var/lib/rook/${ns}/${ns}.config --keyring=/var/lib/rook/${ns}/client.admin.keyring >> ${COMMAND_OUTPUT_FILE}
         done
     fi
 done
